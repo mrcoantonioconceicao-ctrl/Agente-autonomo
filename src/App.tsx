@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { InterfaceMode, AuditResult } from "./types";
-import { LeftSidebar } from "./components/LeftSidebar";
-import { HeaderBanner } from "./components/HeaderBanner";
+import { LeftSidebar, GitHubStatus } from "./components/LeftSidebar";
 import { VsCodeSidebar } from "./components/VsCodeSidebar";
 import { TermuxCliTerminal } from "./components/TermuxCliTerminal";
 import { BpmnOrchestratorView } from "./components/BpmnOrchestratorView";
@@ -14,8 +13,10 @@ export default function App() {
   const [currentMode, setCurrentMode] = useState<InterfaceMode>("vscode");
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [githubMcpStatus, setGithubMcpStatus] = useState<GitHubStatus>("connected");
+  const [githubMcpMessage, setGithubMcpMessage] = useState<string>("Conectado via GitHub MCP");
 
-  useEffect(() => {
+  const checkHealth = () => {
     fetch("/api/health")
       .then((res) => res.json())
       .then((data) => {
@@ -24,6 +25,26 @@ export default function App() {
       .catch((err) => {
         console.warn("Health check error:", err);
       });
+
+    fetch("/api/github/health")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.mode === "LIVE_OCTOKIT") {
+          setGithubMcpStatus("connected");
+        } else {
+          setGithubMcpStatus("simulated");
+        }
+        setGithubMcpMessage(data.message || "Conectado via GitHub MCP");
+      })
+      .catch((err) => {
+        console.warn("GitHub MCP Health error:", err);
+        setGithubMcpStatus("error");
+        setGithubMcpMessage("Falha ao comunicar com o servidor do conector GitHub MCP");
+      });
+  };
+
+  useEffect(() => {
+    checkHealth();
   }, []);
 
   const handleAudit = async (code: string, fileName: string): Promise<AuditResult | null> => {
@@ -74,25 +95,22 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-slate-950 text-slate-100 font-sans flex overflow-hidden">
-      {/* Left Vertical Navigation Menu */}
+      {/* Left Vertical Navigation & Status Sidebar */}
       <LeftSidebar
         currentMode={currentMode}
         onSelectMode={(mode) => setCurrentMode(mode)}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         geminiConfigured={geminiConfigured}
+        githubMcpStatus={githubMcpStatus}
+        githubMcpMessage={githubMcpMessage}
+        onRefreshGithubStatus={checkHealth}
       />
 
-      {/* Main Container */}
+      {/* Main Full-Height Workspace Container */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Header */}
-        <HeaderBanner
-          currentMode={currentMode}
-          geminiConfigured={geminiConfigured}
-        />
-
         {/* Dynamic Workspace Content */}
-        <main className="flex-1 overflow-y-auto p-3 md:p-5 bg-slate-950">
+        <main className="flex-1 overflow-y-auto p-3 md:p-4 bg-slate-950">
           {currentMode === "vscode" && (
             <VsCodeSidebar onAudit={handleAudit} onPatch={handlePatch} />
           )}
@@ -113,7 +131,7 @@ export default function App() {
         </main>
 
         {/* Footer Status Bar */}
-        <footer className="bg-slate-950 border-t border-slate-900 py-2 px-4 text-[11px] font-mono text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-1 shrink-0">
+        <footer className="bg-slate-950 border-t border-slate-900 py-1.5 px-4 text-[11px] font-mono text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-1 shrink-0">
           <div className="flex items-center gap-3">
             <span>Agente Híbrido v2.4.0</span>
             <span>•</span>

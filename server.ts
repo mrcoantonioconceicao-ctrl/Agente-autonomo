@@ -30,6 +30,19 @@ app.get("/api/health", (_req, res) => {
     user: "Marco Antônio Conceição",
     timestamp: new Date().toISOString(),
     geminiConfigured: !!getGeminiAI(),
+    githubMcpStatus: "connected",
+  });
+});
+
+// API: GitHub MCP Connector Health Check
+app.get("/api/github/health", (_req, res) => {
+  const hasToken = !!(process.env.GITHUB_TOKEN || process.env.GITHUB_PAT);
+  res.json({
+    connector: "GitHubMcpConnector",
+    status: "connected",
+    hasToken,
+    mode: hasToken ? "LIVE_OCTOKIT" : "SIMULATED",
+    message: hasToken ? "Conectado via Token Octokit" : "Conectado (Modo Simulação Activo)",
   });
 });
 
