@@ -1,0 +1,6 @@
+{
+  "name": "Agente Híbrido Rust & Solana",
+  "description": "Agente de IA Autônomo de Engenharia de Software, Arquitetura e Segurança Rust/Solana (VS Code & Termux CLI) para Marco Antônio Conceição.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
