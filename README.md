@@ -13,8 +13,9 @@ Plataforma autônoma e orquestrada para **auditoria estática de contratos intel
   - *Missing CPI Program Check* (Execução de CPI vulnerável sem checar o Program ID)
   - *Reentrancy / Unchecked Account Modifications*
   - *Integer Overflow / Unchecked Math Operations*
-- **Rug Patch Engine (Refatorador de Código):** Gera automaticamente correções definitivas com código Rust seguro e gera uma comparação lado a lado (`Diff View`).
-- **Push Direct Commit to GitHub:** Aplica os patches de segurança gerados diretamente na branch do repositório remoto via API do GitHub.
+- **Rug Patch Engine (Refatorador de Código):** Gera automaticamente correções cirúrgicas com código Rust/Anchor seguro e gera uma comparação lado a lado (`Diff View`).
+- **Etapa de Dry-Run Pré-Commit (Garantia de Compilação):** Executa linters e verificadores de compilação estritos (`cargo check`, `cargo clippy --fix`, `eslint --fix`, `python -m py_compile`) sobre o código modificado **antes** de autorizar qualquer commit. Se forem detectados erros sintáticos ou de compilação, o commit é estritamente bloqueado.
+- **Push Direct Commit to GitHub:** Aplica os patches de segurança gerados na branch isolada via API do GitHub, anexando o selo de auditoria e os logs do Dry-run ao corpo do Pull Request.
 
 ### 2. 🐙 GitHub MCP Connector (`GitHubMcpConnector`)
 - **Varredura de PRs no CI/CD:** Varre Pull Requests abertos no repositório buscando execuções de Check Runs com status de falha (`failure`, `timed_out`, `action_required`).

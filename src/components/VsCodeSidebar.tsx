@@ -14,9 +14,15 @@ import {
   Zap,
   Github,
   Upload,
+  FlaskConical,
+  Terminal as TerminalIcon,
+  AlertCircle,
+  ShieldAlert,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { RUST_EXAMPLES } from "../data/rustExamples";
-import { AuditResult, AuditIssue } from "../types";
+import { AuditResult, AuditIssue, DryRunCheckResult } from "../types";
 
 interface VsCodeSidebarProps {
   onAudit: (code: string, fileName: string) => Promise<AuditResult | null>;
@@ -34,6 +40,14 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
   const [patchedCode, setPatchedCode] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [viewTab, setViewTab] = useState<"code" | "diff" | "report">("code");
+
+  // Dry-run Linter & Compiler Check states
+  const [dryRunResult, setDryRunResult] = useState<DryRunCheckResult | null>(null);
+  const [loadingDryRun, setLoadingDryRun] = useState<boolean>(false);
+  const [dryRunCommand, setDryRunCommand] = useState<string>("cargo check --color=never");
+  const [dryRunBlockedError, setDryRunBlockedError] = useState<string | null>(null);
+  const [showDryRunDetails, setShowDryRunDetails] = useState<boolean>(true);
+  const [safePatchedBackup, setSafePatchedBackup] = useState<string | null>(null);
 
   // GitHub MCP Integration states
   const [githubToken, setGithubToken] = useState<string>("");
@@ -68,9 +82,73 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
     }
   };
 
+  const handleExecuteDryRun = async (codeToTest?: string, cmdToUse?: string) => {
+    const targetCode = codeToTest !== undefined ? codeToTest : (patchedCode || code);
+    const cmd = cmdToUse || dryRunCommand;
+    setLoadingDryRun(true);
+    setDryRunBlockedError(null);
+
+    try {
+      const res = await fetch("/api/agent/dry-run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: targetCode,
+          filePath: fileName,
+          command: cmd,
+        }),
+      });
+      const data = await res.json();
+      if (data.dryRunResult) {
+        setDryRunResult(data.dryRunResult);
+        if (!data.dryRunResult.passed) {
+          setDryRunBlockedError(
+            `[Dry-Run Reprovado] Detectados ${data.dryRunResult.errorsCount} erro(s) de compilação com '${data.dryRunResult.commandExecuted}'. O commit está estritamente bloqueado para proteger o repositório.`
+          );
+        } else {
+          setDryRunBlockedError(null);
+        }
+      }
+    } catch (err: any) {
+      console.error("Erro ao executar Dry-run:", err);
+    } finally {
+      setLoadingDryRun(false);
+    }
+  };
+
+  const handleSimulateSyntaxError = () => {
+    if (!patchedCode) return;
+    if (!safePatchedBackup) {
+      setSafePatchedBackup(patchedCode);
+    }
+    // Injeta propositalmente um erro de sintaxe (chaves desbalanceadas e ponto e vírgula ausente)
+    const brokenCode = patchedCode + "\n\n// [ERRO SINTÁTICO INJETADO PARA TESTE DE PRE-COMMIT DRY-RUN]\npub fn broken_syntax_probe() {\n    let unclosed_statement = 42\n";
+    setPatchedCode(brokenCode);
+    handleExecuteDryRun(brokenCode);
+  };
+
+  const handleRestoreSafePatch = () => {
+    if (safePatchedBackup) {
+      setPatchedCode(safePatchedBackup);
+      handleExecuteDryRun(safePatchedBackup);
+      setDryRunBlockedError(null);
+    }
+  };
+
   const handlePushPatchToGithub = async () => {
     if (!patchedCode) return;
+
+    // Trava de segurança: Se o Dry-run tiver falhado, bloqueia o commit
+    if (dryRunResult && !dryRunResult.passed) {
+      setDryRunBlockedError(
+        `Commit Bloqueado: O patch não passou no Dry-run ('${dryRunResult.commandExecuted}') com ${dryRunResult.errorsCount} erro(s) de compilação. Corrija o código antes de commitar.`
+      );
+      return;
+    }
+
     setPushingPatch(true);
+    setDryRunBlockedError(null);
+
     try {
       const res = await fetch("/api/github/push-patch", {
         method: "POST",
@@ -82,15 +160,28 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
           branch: "fix/anchor-vault-cpi",
           filePath: `programs/solana-vault/src/${fileName}`,
           newContent: patchedCode,
-          commitMessage: `[Rug Safe Patch] Auto-fix Anchor security vulnerability in ${fileName}`,
+          commitMessage: `[Rug Safe Patch] Auto-fix Anchor security vulnerability in ${fileName} (Dry-run: ${dryRunCommand} PASSED)`,
         }),
       });
+
       const data = await res.json();
+      if (!res.ok || data.success === false) {
+        setDryRunBlockedError(data.error || "Falha ao enviar commit.");
+        if (data.dryRunResult) {
+          setDryRunResult(data.dryRunResult);
+        }
+        return;
+      }
+
       if (data.commitUrl) {
         setCommitSuccessUrl(data.commitUrl);
       }
-    } catch (err) {
+      if (data.dryRunResult) {
+        setDryRunResult(data.dryRunResult);
+      }
+    } catch (err: any) {
       console.error("Erro ao enviar commit ao GitHub:", err);
+      setDryRunBlockedError(`Erro ao enviar commit: ${err.message}`);
     } finally {
       setPushingPatch(false);
     }
@@ -104,12 +195,15 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
       setFileName(found.name.split(" ")[0]);
       setAuditResult(null);
       setPatchedCode(null);
+      setDryRunResult(null);
+      setDryRunBlockedError(null);
     }
   };
 
   const handleRunAudit = async () => {
     setLoadingAudit(true);
     setPatchedCode(null);
+    setDryRunResult(null);
     try {
       const res = await onAudit(code, fileName);
       setAuditResult(res);
@@ -121,11 +215,15 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
 
   const handleApplyRugPatch = async (issueTitle: string) => {
     setLoadingPatch(true);
+    setDryRunBlockedError(null);
     try {
       const result = await onPatch(code, issueTitle);
       if (result) {
         setPatchedCode(result);
+        setSafePatchedBackup(result);
         setViewTab("diff");
+        // Executa imediatamente a etapa de Dry-run sobre o código modificado
+        handleExecuteDryRun(result, dryRunCommand);
       }
     } finally {
       setLoadingPatch(false);
@@ -474,6 +572,173 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
                   </a>
                 </div>
               )}
+
+              {/* Error Block Alert if Dry-run fails */}
+              {dryRunBlockedError && (
+                <div className="p-3 bg-rose-950/60 border border-rose-600 rounded text-xs text-rose-200 flex items-start justify-between gap-3 shadow-lg">
+                  <div className="flex items-start gap-2">
+                    <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-rose-300 uppercase tracking-wide">
+                        COMMIT BLOQUEADO PELO DRY-RUN
+                      </h4>
+                      <p className="text-[11px] text-rose-200 mt-1 leading-relaxed">
+                        {dryRunBlockedError}
+                      </p>
+                    </div>
+                  </div>
+                  {safePatchedBackup && (
+                    <button
+                      onClick={handleRestoreSafePatch}
+                      className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white rounded text-[11px] font-semibold shrink-0 transition-colors"
+                    >
+                      Restaurar Patch Válido
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Dry-run Verification & Linter Control Panel */}
+              <div className={`p-3 rounded border text-xs transition-all ${
+                dryRunResult?.passed
+                  ? "bg-slate-900 border-emerald-500/50"
+                  : dryRunResult && !dryRunResult.passed
+                  ? "bg-rose-950/30 border-rose-500/70"
+                  : "bg-slate-900 border-slate-800"
+              }`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded ${
+                      dryRunResult?.passed
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : dryRunResult && !dryRunResult.passed
+                        ? "bg-rose-500/20 text-rose-400"
+                        : "bg-sky-500/20 text-sky-400"
+                    }`}>
+                      <FlaskConical className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-200">ETAPA DE DRY-RUN (PRE-COMMIT LINTER)</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                          loadingDryRun
+                            ? "bg-sky-500/20 text-sky-300 animate-pulse"
+                            : dryRunResult?.passed
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                            : dryRunResult && !dryRunResult.passed
+                            ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                            : "bg-slate-800 text-slate-400"
+                        }`}>
+                          {loadingDryRun
+                            ? "Compilando..."
+                            : dryRunResult?.passed
+                            ? `✔ PASSED (${dryRunResult.commandExecuted})`
+                            : dryRunResult && !dryRunResult.passed
+                            ? `✖ ERRO (${dryRunResult.errorsCount} erros de compilação)`
+                            : "Pendente"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Executa linter/compiler estrito antes de commitar para garantir que o patch não introduza erros.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions & Linter Command Selection */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <select
+                      value={dryRunCommand}
+                      onChange={(e) => {
+                        const newCmd = e.target.value;
+                        setDryRunCommand(newCmd);
+                        handleExecuteDryRun(undefined, newCmd);
+                      }}
+                      className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="cargo check --color=never">cargo check</option>
+                      <option value="cargo clippy --fix --allow-dirty">cargo clippy --fix</option>
+                      <option value="npx eslint --fix">eslint --fix</option>
+                      <option value="python -m py_compile">python py_compile</option>
+                    </select>
+
+                    <button
+                      onClick={() => handleExecuteDryRun()}
+                      disabled={loadingDryRun}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-sky-600/30 hover:bg-sky-600/40 text-sky-300 border border-sky-500/40 rounded text-[11px] transition-colors font-medium"
+                    >
+                      {loadingDryRun ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+                      <span>Rodar Dry-Run</span>
+                    </button>
+
+                    <button
+                      onClick={handleSimulateSyntaxError}
+                      title="Injeta deliberadamente um erro sintático para testar a trava de segurança do commit"
+                      className="flex items-center gap-1 px-2 py-1 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded text-[10px] transition-colors"
+                    >
+                      <span>Simular Erro Sintático</span>
+                    </button>
+
+                    <button
+                      onClick={() => setShowDryRunDetails(!showDryRunDetails)}
+                      className="p-1 hover:bg-slate-800 rounded text-slate-400"
+                    >
+                      {showDryRunDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dry-run Diagnostics & Compiler Log Output */}
+                {showDryRunDetails && dryRunResult && (
+                  <div className="mt-2.5 space-y-2">
+                    {/* Error / Warning Badges */}
+                    {dryRunResult.diagnostics.length > 0 && (
+                      <div className="space-y-1">
+                        {dryRunResult.diagnostics.map((diag, i) => (
+                          <div
+                            key={i}
+                            className={`p-2 rounded text-[11px] font-mono flex items-start gap-2 ${
+                              diag.severity === "ERROR"
+                                ? "bg-rose-950/50 border border-rose-900 text-rose-300"
+                                : "bg-amber-950/50 border border-amber-900 text-amber-300"
+                            }`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between font-bold">
+                                <span>{diag.severity}: {diag.message}</span>
+                                {diag.line && <span className="text-[10px] text-slate-400">Linha {diag.line}:{diag.column || 1}</span>}
+                              </div>
+                              {diag.snippet && (
+                                <code className="block mt-0.5 text-[10px] text-slate-300 bg-slate-950 p-1 rounded">
+                                  {diag.snippet}
+                                </code>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Terminal Output */}
+                    <div className="bg-slate-950 border border-slate-800 rounded p-2.5 font-mono text-[11px]">
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 border-b border-slate-800 pb-1 mb-1.5">
+                        <span className="flex items-center gap-1">
+                          <TerminalIcon className="w-3 h-3 text-slate-500" />
+                          <span>Console de Saída: {dryRunResult.commandExecuted}</span>
+                        </span>
+                        <span>Tempo: {dryRunResult.executionTimeMs}ms | Código de Saída: {dryRunResult.passed ? "0" : "1"}</span>
+                      </div>
+                      <pre className={`whitespace-pre-wrap leading-relaxed ${
+                        dryRunResult.passed ? "text-emerald-300" : "text-rose-300"
+                      }`}>
+                        {dryRunResult.stdout || dryRunResult.stderr}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Patch Actions */}
               <div className="p-3 bg-emerald-950/20 border border-emerald-800/60 rounded text-xs text-emerald-300 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-emerald-400" />
@@ -488,18 +753,35 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
                   <button
                     id="btn-push-patch-github"
                     onClick={handlePushPatchToGithub}
-                    disabled={pushingPatch}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium rounded transition-colors"
+                    disabled={pushingPatch || (dryRunResult ? !dryRunResult.passed : false)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded transition-colors ${
+                      dryRunResult && !dryRunResult.passed
+                        ? "bg-rose-900/60 cursor-not-allowed text-rose-300 border border-rose-700/50"
+                        : "bg-purple-600 hover:bg-purple-500"
+                    }`}
+                    title={
+                      dryRunResult && !dryRunResult.passed
+                        ? "Commit bloqueado: O Dry-run detectou erros de compilação"
+                        : "Commita o patch na branch isolada e abre o PR"
+                    }
                   >
-                    {pushingPatch ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    <span>Push Commit ao GitHub</span>
+                    {pushingPatch ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {dryRunResult && !dryRunResult.passed
+                        ? "Commit Bloqueado (Erros no Dry-Run)"
+                        : "Push Commit ao GitHub (Dry-Run ✔)"}
+                    </span>
                   </button>
                   <button
                     onClick={() => {
                       setCode(patchedCode);
                       setViewTab("code");
                     }}
-                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded transition-colors"
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded transition-colors"
                   >
                     Aplicar ao Editor Principal
                   </button>

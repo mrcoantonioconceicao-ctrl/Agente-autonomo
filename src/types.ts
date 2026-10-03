@@ -74,4 +74,27 @@ export interface TerminalLine {
   timestamp: string;
 }
 
+export interface DryRunDiagnostic {
+  line?: number;
+  column?: number;
+  severity: "ERROR" | "WARNING" | "INFO";
+  message: string;
+  rule?: string;
+  snippet?: string;
+}
+
+export interface DryRunCheckResult {
+  passed: boolean;
+  commandExecuted: string;
+  linter: string;
+  stdout: string;
+  stderr: string;
+  executionTimeMs: number;
+  errorsCount: number;
+  warningsCount: number;
+  diagnostics: DryRunDiagnostic[];
+  compilationSafe: boolean;
+  details: string;
+}
+
 export type InterfaceMode = "vscode" | "termux" | "bpmn" | "graphrag" | "mcp" | "graf" | "graphic_hack";
