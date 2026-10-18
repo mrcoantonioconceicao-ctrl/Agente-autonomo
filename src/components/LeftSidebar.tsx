@@ -14,8 +14,10 @@ import {
   Github,
   AlertCircle,
   RefreshCw,
+  Smartphone,
+  ArrowLeftRight,
 } from "lucide-react";
-import { InterfaceMode } from "../types";
+import { InterfaceMode, BidirectionalSyncState } from "../types";
 
 export type GitHubStatus = "connected" | "error" | "simulated" | "checking";
 
@@ -28,6 +30,8 @@ interface LeftSidebarProps {
   githubMcpStatus?: GitHubStatus;
   githubMcpMessage?: string;
   onRefreshGithubStatus?: () => void;
+  syncState?: BidirectionalSyncState;
+  onOpenSyncModal?: () => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -39,6 +43,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   githubMcpStatus = "connected",
   githubMcpMessage = "Conectado e Operacional",
   onRefreshGithubStatus,
+  syncState,
+  onOpenSyncModal,
 }) => {
   const menuItems = [
     {
@@ -284,6 +290,36 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             )}
           </div>
 
+          {/* Termux ⇄ Web Bidirectional Sync Indicator */}
+          <div
+            onClick={onOpenSyncModal}
+            className="p-2 rounded bg-slate-900/90 border border-amber-800/40 space-y-1 cursor-pointer hover:border-amber-500/60 transition-colors"
+            title="Clique para inspecionar a sincronização bidirecional Termux ⇄ Web"
+          >
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-amber-300 font-sans text-xs">
+                <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+                <span>Termux ⇄ Web</span>
+              </span>
+              <span className="px-1.5 py-0.2 rounded text-[9px] border font-mono bg-amber-500/20 text-amber-300 border-amber-500/40">
+                Rev #{syncState?.revision || 1}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <span>Cluster:</span>
+              <span className="text-amber-400 font-mono uppercase text-[9px]">
+                {syncState?.config.solanaCluster || "devnet"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <span>Estado:</span>
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+                Harmonizado
+              </span>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between text-slate-400">
             <span>Status Engine:</span>
             <span className="text-emerald-400 font-bold flex items-center gap-1">
@@ -306,12 +342,21 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
       ) : (
         <div className="p-2 border-t border-slate-800 text-center space-y-2">
-          {/* Collapsed Icon with Status Dot */}
+          {/* Collapsed GitHub Icon */}
           <div className="relative inline-block" title={`GitHub MCP: ${ghInfo.text}`}>
             <Github className="w-5 h-5 text-slate-400 mx-auto" />
             <span
               className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border border-slate-950 ${ghInfo.dotClass}`}
             ></span>
+          </div>
+          {/* Collapsed Termux Sync Icon */}
+          <div
+            onClick={onOpenSyncModal}
+            className="relative inline-block cursor-pointer pt-1"
+            title={`Termux Sync: Rev #${syncState?.revision || 1} Harmonizado (Clique para abrir)`}
+          >
+            <Smartphone className="w-5 h-5 text-amber-400 mx-auto hover:text-amber-300" />
+            <span className="absolute -top-0 -right-1 w-2 h-2 rounded-full bg-emerald-400 border border-slate-950 animate-pulse"></span>
           </div>
         </div>
       )}

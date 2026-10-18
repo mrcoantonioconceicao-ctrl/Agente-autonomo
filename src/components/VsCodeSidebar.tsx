@@ -20,16 +20,31 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronUp,
+  ArrowLeftRight,
+  Smartphone,
 } from "lucide-react";
 import { RUST_EXAMPLES } from "../data/rustExamples";
-import { AuditResult, AuditIssue, DryRunCheckResult } from "../types";
+import { AuditResult, AuditIssue, DryRunCheckResult, TermuxSyncConfig } from "../types";
 
 interface VsCodeSidebarProps {
   onAudit: (code: string, fileName: string) => Promise<AuditResult | null>;
   onPatch: (code: string, issueTitle: string) => Promise<string | null>;
+  syncedConfig?: TermuxSyncConfig;
+  onUpdateSyncedConfig?: (
+    partial: Partial<TermuxSyncConfig>,
+    source: "web-ui",
+    action?: string
+  ) => Promise<any>;
+  onOpenSyncModal?: () => void;
 }
 
-export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }) => {
+export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({
+  onAudit,
+  onPatch,
+  syncedConfig,
+  onUpdateSyncedConfig,
+  onOpenSyncModal,
+}) => {
   const [selectedExample, setSelectedExample] = useState<string>(RUST_EXAMPLES[0].id);
   const [code, setCode] = useState<string>(RUST_EXAMPLES[0].code);
   const [fileName, setFileName] = useState<string>("vault_deposit.rs");
@@ -57,6 +72,27 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
   const [pushingPatch, setPushingPatch] = useState<boolean>(false);
   const [githubPrs, setGithubPrs] = useState<any[]>([]);
   const [commitSuccessUrl, setCommitSuccessUrl] = useState<string | null>(null);
+
+  // Sincronização automática com as configurações do Termux
+  React.useEffect(() => {
+    if (syncedConfig) {
+      if (syncedConfig.dryRunCommand) {
+        setDryRunCommand(syncedConfig.dryRunCommand);
+      }
+      if (syncedConfig.githubOwner) {
+        setGithubOwner(syncedConfig.githubOwner);
+      }
+      if (syncedConfig.githubRepo) {
+        setGithubRepo(syncedConfig.githubRepo);
+      }
+      if (syncedConfig.activeFilePath) {
+        const base = syncedConfig.activeFilePath.split("/").pop();
+        if (base) {
+          setFileName(base);
+        }
+      }
+    }
+  }, [syncedConfig]);
 
   const handleScanGithubPrs = async () => {
     setScanningGithub(true);
@@ -256,6 +292,34 @@ export const VsCodeSidebar: React.FC<VsCodeSidebarProps> = ({ onAudit, onPatch }
           </div>
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="IDE Service Connected" />
         </div>
+
+        {/* Termux Bidirectional Sync Banner */}
+        {syncedConfig && (
+          <div className="p-2.5 rounded bg-amber-950/20 border border-amber-800/40 text-[11px] font-mono space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-amber-300 font-sans font-semibold">
+                <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+                <span>Termux CLI Sincronizado</span>
+              </span>
+              {onOpenSyncModal && (
+                <button
+                  onClick={onOpenSyncModal}
+                  className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] flex items-center gap-1 transition-colors"
+                >
+                  <ArrowLeftRight className="w-3 h-3" />
+                  <span>Config</span>
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+              <span>Cluster: <strong className="text-amber-400 uppercase">{syncedConfig.solanaCluster}</strong></span>
+              <span>•</span>
+              <span>Dry-Run: <strong className={syncedConfig.enforceDryRun ? "text-emerald-400" : "text-slate-400"}>{syncedConfig.enforceDryRun ? "Strict" : "Off"}</strong></span>
+              <span>•</span>
+              <span>Repo: <strong className="text-slate-200">{githubRepo}</strong></span>
+            </div>
+          </div>
+        )}
 
         {/* PR Selector & Presets */}
         <div className="space-y-3 text-xs">

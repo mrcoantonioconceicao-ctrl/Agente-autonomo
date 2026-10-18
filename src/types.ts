@@ -98,3 +98,41 @@ export interface DryRunCheckResult {
 }
 
 export type InterfaceMode = "vscode" | "termux" | "bpmn" | "graphrag" | "mcp" | "graf" | "graphic_hack";
+
+export type SolanaCluster = "devnet" | "mainnet-beta" | "testnet" | "localnet";
+
+export interface TermuxSyncConfig {
+  solanaCluster: SolanaCluster;
+  activeFilePath: string;
+  githubOwner: string;
+  githubRepo: string;
+  githubBranch: string;
+  anchorVersion: string;
+  dryRunCommand: string;
+  enforceDryRun: boolean;
+  autoRemediate: boolean;
+  telemetryLogLevel: "debug" | "info" | "warn" | "error";
+  termuxDeviceId: string;
+  termuxLocalDir: string;
+  autoSyncIntervalSec: number;
+  syncEnabled: boolean;
+}
+
+export interface SyncEvent {
+  id: string;
+  timestamp: string;
+  source: "termux-cli" | "web-ui" | "mcp-bus" | "system-reset";
+  action: string;
+  changedKeys: string[];
+  revision: number;
+}
+
+export interface BidirectionalSyncState {
+  config: TermuxSyncConfig;
+  revision: number;
+  lastSyncTimestamp: string;
+  lastSyncSource: "termux-cli" | "web-ui" | "mcp-bus" | "system-reset";
+  status: "synchronized" | "syncing" | "diverged" | "conflict";
+  events: SyncEvent[];
+  latencyMs: number;
+}

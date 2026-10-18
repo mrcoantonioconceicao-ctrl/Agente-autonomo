@@ -1,24 +1,56 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Terminal as TerminalIcon, Send, Trash2, Smartphone, ShieldCheck, Cpu } from "lucide-react";
-import { TerminalLine } from "../types";
+import {
+  Terminal as TerminalIcon,
+  Send,
+  Trash2,
+  Smartphone,
+  ShieldCheck,
+  Cpu,
+  RefreshCw,
+  Settings,
+  ArrowLeftRight,
+  CheckCircle2,
+  Sliders,
+  Check,
+} from "lucide-react";
+import { TerminalLine, BidirectionalSyncState, TermuxSyncConfig, SolanaCluster } from "../types";
+import { TermuxSyncModal } from "./TermuxSyncModal";
 
 interface TermuxCliTerminalProps {
   onExecuteCommand: (cmd: string) => Promise<string>;
+  syncState?: BidirectionalSyncState;
+  loadingSync?: boolean;
+  onTriggerSync?: () => Promise<void>;
+  onUpdateConfig?: (
+    partial: Partial<TermuxSyncConfig>,
+    source: "web-ui" | "termux-cli",
+    action?: string
+  ) => Promise<any>;
+  onResetConfig?: () => Promise<void>;
 }
 
-export const TermuxCliTerminal: React.FC<TermuxCliTerminalProps> = ({ onExecuteCommand }) => {
+export const TermuxCliTerminal: React.FC<TermuxCliTerminalProps> = ({
+  onExecuteCommand,
+  syncState,
+  loadingSync = false,
+  onTriggerSync,
+  onUpdateConfig,
+  onResetConfig,
+}) => {
   const [history, setHistory] = useState<TerminalLine[]>([
     {
       id: "1",
       type: "system",
-      text: `Welcome to Termux Android CLI (v2.1.0)
+      text: `Welcome to Termux Android CLI (v2.4.0)
 Solana/Rust Agent Co-Pilot for Marco Antônio Conceição
+Bidirectional State Sync: ACTIVE (Type 'solana-agent sync' or 'solana-agent config')
 Type 'solana-agent help' or select a shortcut command below.`,
       timestamp: new Date().toLocaleTimeString(),
     },
   ]);
   const [inputCmd, setInputCmd] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState<boolean>(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,6 +81,17 @@ Type 'solana-agent help' or select a shortcut command below.`,
         timestamp: new Date().toLocaleTimeString(),
       };
       setHistory((prev) => [...prev, outputLine]);
+
+      // Se o comando foi de sincronização ou config set, atualizar estado do Web UI
+      if (
+        text.includes("config set") ||
+        text.includes("sync") ||
+        text.includes("config")
+      ) {
+        if (onTriggerSync) {
+          onTriggerSync();
+        }
+      }
     } catch (err) {
       const errLine: TerminalLine = {
         id: (Date.now() + 1).toString(),
@@ -73,14 +116,34 @@ Type 'solana-agent help' or select a shortcut command below.`,
     ]);
   };
 
+  const handleQuickClusterChange = async (cluster: SolanaCluster) => {
+    if (onUpdateConfig) {
+      await onUpdateConfig({ solanaCluster: cluster }, "termux-cli", `Cluster alterado para ${cluster} via Termux`);
+    }
+  };
+
+  const handleToggleDryRun = async () => {
+    if (onUpdateConfig && syncState) {
+      const newVal = !syncState.config.enforceDryRun;
+      await onUpdateConfig(
+        { enforceDryRun: newVal },
+        "termux-cli",
+        `Enforce Dry-Run alternado para ${newVal ? "ATIVO" : "DESATIVADO"} via Termux`
+      );
+    }
+  };
+
   const shortcuts = [
+    { label: "solana-agent config", cmd: "solana-agent config" },
+    { label: "solana-agent sync", cmd: "solana-agent sync" },
+    { label: "config set cluster mainnet", cmd: "solana-agent config set cluster mainnet-beta" },
+    { label: "config set dry-run true", cmd: "solana-agent config set dry-run true" },
     { label: "solana-agent status", cmd: "solana-agent status" },
     { label: "solana-agent audit lib.rs", cmd: "solana-agent audit lib.rs" },
-    { label: "solana-agent patch", cmd: "solana-agent patch" },
     { label: "solana-agent dry-run", cmd: "solana-agent dry-run" },
+    { label: "solana-agent patch", cmd: "solana-agent patch" },
     { label: "solana-agent bpmn", cmd: "solana-agent bpmn" },
     { label: "solana-agent mcp", cmd: "solana-agent mcp" },
-    { label: "solana-agent graph-rag", cmd: "solana-agent graph-rag" },
   ];
 
   return (
@@ -97,14 +160,41 @@ Type 'solana-agent help' or select a shortcut command below.`,
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
                 CLIENT MOBILE
               </span>
+              {syncState && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Rev #{syncState.revision} Sync
+                </span>
+              )}
             </h2>
             <p className="text-[11px] text-slate-400 font-sans">
-              Terminal de Alta Performance para Auditorias Rápidas no Celular
+              Terminal de Alta Performance com Sincronização Bidirecional em Tempo Real
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsSyncModalOpen(true)}
+            className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200 px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-700/60 rounded text-xs transition-colors"
+            title="Abrir painel de sincronização bidirecional Termux ⇄ Web"
+          >
+            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-sans text-[11px] font-semibold">Config Sync</span>
+          </button>
+
+          {onTriggerSync && (
+            <button
+              onClick={() => onTriggerSync()}
+              disabled={loadingSync}
+              className="flex items-center gap-1 text-slate-300 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded text-xs transition-colors"
+              title="Sincronizar agora com o servidor e interface Web"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${loadingSync ? "animate-spin" : ""}`} />
+              <span className="font-sans text-[11px]">Sync</span>
+            </button>
+          )}
+
           <button
             onClick={handleClear}
             className="flex items-center gap-1 text-slate-400 hover:text-slate-200 px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs transition-colors"
@@ -115,6 +205,62 @@ Type 'solana-agent help' or select a shortcut command below.`,
           </button>
         </div>
       </div>
+
+      {/* Bidirectional Sync Status Ribbon */}
+      {syncState && (
+        <div className="bg-slate-900/80 border border-slate-800/90 rounded-md p-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-slate-400 font-sans">
+              <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+              <span>Sincronia:</span>
+            </span>
+
+            {/* Quick Cluster Selector */}
+            <div className="flex items-center gap-1 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+              <span className="text-slate-400 text-[10px]">Cluster:</span>
+              <select
+                value={syncState.config.solanaCluster}
+                onChange={(e) => handleQuickClusterChange(e.target.value as SolanaCluster)}
+                className="bg-transparent text-amber-300 font-bold focus:outline-none cursor-pointer text-[10px]"
+              >
+                <option value="devnet" className="bg-slate-900 text-slate-200">devnet</option>
+                <option value="mainnet-beta" className="bg-slate-900 text-slate-200">mainnet-beta</option>
+                <option value="testnet" className="bg-slate-900 text-slate-200">testnet</option>
+                <option value="localnet" className="bg-slate-900 text-slate-200">localnet</option>
+              </select>
+            </div>
+
+            {/* Dry-run Toggle Pill */}
+            <button
+              onClick={handleToggleDryRun}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] transition-colors ${
+                syncState.config.enforceDryRun
+                  ? "bg-emerald-950/50 border-emerald-700/60 text-emerald-300"
+                  : "bg-slate-950 border-slate-800 text-slate-400"
+              }`}
+              title="Clique para alternar o bloqueio de commit por linter"
+            >
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Dry-Run Strict: {syncState.config.enforceDryRun ? "ATIVO" : "OFF"}</span>
+            </button>
+
+            {/* Active File Pill */}
+            <div className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-slate-300 truncate max-w-[220px]" title={syncState.config.activeFilePath}>
+              <span className="text-slate-500 text-[10px]">Alvo: </span>
+              <span className="text-sky-300">{syncState.config.activeFilePath.split("/").pop()}</span>
+            </div>
+
+            {/* Auto Remediate Pill */}
+            <div className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-purple-300 text-[10px]">
+              Rug Auto-Fix: {syncState.config.autoRemediate ? "ON" : "OFF"}
+            </div>
+          </div>
+
+          <div className="text-[10px] text-slate-500 font-mono">
+            Última Sincronia: {new Date(syncState.lastSyncTimestamp).toLocaleTimeString()} ({syncState.lastSyncSource})
+          </div>
+        </div>
+      )}
 
       {/* Quick Shortcut Pills */}
       <div className="flex items-center gap-2 overflow-x-auto py-1 border-b border-slate-800/60 scrollbar-none">
@@ -182,7 +328,7 @@ Type 'solana-agent help' or select a shortcut command below.`,
             onKeyDown={(e) => {
               if (e.key === "Enter") handleSend();
             }}
-            placeholder="Digite solana-agent audit, status, patch..."
+            placeholder="Digite solana-agent config, sync, audit, status..."
             className="w-full bg-slate-900 border border-slate-700 rounded pl-36 pr-4 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
           />
         </div>
@@ -196,6 +342,34 @@ Type 'solana-agent help' or select a shortcut command below.`,
           <span className="font-sans">Enviar</span>
         </button>
       </div>
+
+      {/* Termux Sync Modal Drawer */}
+      {syncState && (
+        <TermuxSyncModal
+          isOpen={isSyncModalOpen}
+          onClose={() => setIsSyncModalOpen(false)}
+          syncState={syncState}
+          loading={loadingSync}
+          onUpdateConfig={
+            onUpdateConfig ||
+            (async () => {
+              return null;
+            })
+          }
+          onTriggerSync={
+            onTriggerSync ||
+            (async () => {
+              return;
+            })
+          }
+          onResetConfig={
+            onResetConfig ||
+            (async () => {
+              return;
+            })
+          }
+        />
+      )}
     </div>
   );
 };

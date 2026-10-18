@@ -499,6 +499,155 @@ app.post("/api/agent/apply-polyglot-patch", async (req, res) => {
   }
 });
 
+// ============================================================================
+// SUBSYSTEM: Termux Local Config & Web System State Bidirectional Sync Engine
+// ============================================================================
+interface TermuxSyncConfig {
+  solanaCluster: "devnet" | "mainnet-beta" | "testnet" | "localnet";
+  activeFilePath: string;
+  githubOwner: string;
+  githubRepo: string;
+  githubBranch: string;
+  anchorVersion: string;
+  dryRunCommand: string;
+  enforceDryRun: boolean;
+  autoRemediate: boolean;
+  telemetryLogLevel: "debug" | "info" | "warn" | "error";
+  termuxDeviceId: string;
+  termuxLocalDir: string;
+  autoSyncIntervalSec: number;
+  syncEnabled: boolean;
+}
+
+interface SyncEvent {
+  id: string;
+  timestamp: string;
+  source: "termux-cli" | "web-ui" | "mcp-bus" | "system-reset";
+  action: string;
+  changedKeys: string[];
+  revision: number;
+}
+
+const DEFAULT_SYNC_CONFIG: TermuxSyncConfig = {
+  solanaCluster: "devnet",
+  activeFilePath: "programs/solana-vault/src/lib.rs",
+  githubOwner: "marcoantonio",
+  githubRepo: "solana-anchor-vault",
+  githubBranch: "main",
+  anchorVersion: "0.30.1",
+  dryRunCommand: "cargo check --color=never",
+  enforceDryRun: true,
+  autoRemediate: true,
+  telemetryLogLevel: "info",
+  termuxDeviceId: "termux-mobile-arm64",
+  termuxLocalDir: "~/egc-workspace/solana-anchor-vault",
+  autoSyncIntervalSec: 5,
+  syncEnabled: true,
+};
+
+let currentSyncConfig: TermuxSyncConfig = { ...DEFAULT_SYNC_CONFIG };
+let syncRevision = 1;
+let lastSyncTimestamp = new Date().toISOString();
+let lastSyncSource: "termux-cli" | "web-ui" | "mcp-bus" | "system-reset" = "system-reset";
+let syncEvents: SyncEvent[] = [
+  {
+    id: `sync-evt-${Date.now()}-1`,
+    timestamp: new Date().toISOString(),
+    source: "system-reset",
+    action: "Inicialização do subsistema de sincronização bidirecional Termux ⇄ Web",
+    changedKeys: ["all"],
+    revision: 1,
+  },
+];
+
+// API: Retornar o estado atual unificado de sincronização Termux ⇄ Web
+app.get("/api/sync/config", (_req, res) => {
+  res.json({
+    config: currentSyncConfig,
+    revision: syncRevision,
+    lastSyncTimestamp,
+    lastSyncSource,
+    status: "synchronized",
+    events: syncEvents.slice(-25),
+    latencyMs: Math.floor(Math.random() * 8) + 12,
+  });
+});
+
+// API: Atualizar configurações bidirecionalmente (Web UI -> Termux ou Termux Daemon -> Web UI)
+app.post("/api/sync/config", (req, res) => {
+  const { config: incomingConfig, source = "web-ui", action } = req.body;
+
+  if (!incomingConfig || typeof incomingConfig !== "object") {
+    return res.status(400).json({ error: "Payload de configuração inválido." });
+  }
+
+  const changedKeys: string[] = [];
+  const updated = { ...currentSyncConfig };
+
+  (Object.keys(incomingConfig) as Array<keyof TermuxSyncConfig>).forEach((key) => {
+    if (incomingConfig[key] !== undefined && updated[key] !== incomingConfig[key]) {
+      (updated as any)[key] = incomingConfig[key];
+      changedKeys.push(String(key));
+    }
+  });
+
+  if (changedKeys.length > 0) {
+    currentSyncConfig = updated;
+    syncRevision += 1;
+    lastSyncTimestamp = new Date().toISOString();
+    lastSyncSource = (source === "termux-cli" ? "termux-cli" : "web-ui");
+
+    const eventDesc = action || `Sincronização via ${source.toUpperCase()}: alterou [${changedKeys.join(", ")}]`;
+    syncEvents.push({
+      id: `sync-evt-${Date.now()}-${syncRevision}`,
+      timestamp: lastSyncTimestamp,
+      source: lastSyncSource,
+      action: eventDesc,
+      changedKeys,
+      revision: syncRevision,
+    });
+  }
+
+  res.json({
+    success: true,
+    config: currentSyncConfig,
+    revision: syncRevision,
+    lastSyncTimestamp,
+    lastSyncSource,
+    changedKeys,
+    status: "synchronized",
+    events: syncEvents.slice(-25),
+    latencyMs: Math.floor(Math.random() * 6) + 14,
+  });
+});
+
+// API: Resetar sincronização para os padrões de fábrica do EGC
+app.post("/api/sync/reset", (_req, res) => {
+  currentSyncConfig = { ...DEFAULT_SYNC_CONFIG };
+  syncRevision += 1;
+  lastSyncTimestamp = new Date().toISOString();
+  lastSyncSource = "system-reset";
+  syncEvents.push({
+    id: `sync-evt-${Date.now()}-${syncRevision}`,
+    timestamp: lastSyncTimestamp,
+    source: "system-reset",
+    action: "Configurações restauradas para o perfil Enterprise EGC padrão",
+    changedKeys: ["all"],
+    revision: syncRevision,
+  });
+
+  res.json({
+    success: true,
+    config: currentSyncConfig,
+    revision: syncRevision,
+    lastSyncTimestamp,
+    lastSyncSource,
+    status: "synchronized",
+    events: syncEvents.slice(-25),
+    latencyMs: 15,
+  });
+});
+
 // API: CLI Command Interpreter (For Termux simulator / terminal)
 app.post("/api/cli-command", async (req, res) => {
   const { command, context } = req.body;
@@ -514,10 +663,211 @@ app.post("/api/cli-command", async (req, res) => {
         output: `[SOLANA-AGENT] Status da Engine: ONLINE
 User: Marco Antônio Conceição
 Environment: Termux Android CLI (Client) <-> Cloud Container Server
+Termux ⇄ Web Sync: SYNCHRONIZED (Revisão #${syncRevision} | Fonte: ${lastSyncSource})
+Solana Cluster: ${currentSyncConfig.solanaCluster.toUpperCase()}
+Arquivo Ativo: ${currentSyncConfig.activeFilePath}
+Dry-Run Enforcement: ${currentSyncConfig.enforceDryRun ? "ATIVO (cargo check pré-commit)" : "DESATIVADO"}
+Auto Remediação Rug: ${currentSyncConfig.autoRemediate ? "ATIVADO" : "MANUAL"}
 BPMN Orchestrator: Ready (100% success SLA)
 GraphRAG: Active (3,420 nodes mapped)
 MCP Bus: 6 Services registered
-Anchor Target: 0.30.1 | Rust: 1.85-nightly`,
+Anchor Target: ${currentSyncConfig.anchorVersion} | Rust: 1.85-nightly`,
+      });
+    }
+
+    // Bidirectional Sync CLI Subcommands: config, sync, env
+    if (sub === "config" || sub === "sync" || sub === "env") {
+      const configAction = (sub === "sync" ? "sync" : args[1] || "list");
+
+      // 1. solana-agent sync OR solana-agent config sync
+      if (configAction === "sync") {
+        syncRevision += 1;
+        lastSyncTimestamp = new Date().toISOString();
+        lastSyncSource = "termux-cli";
+        syncEvents.push({
+          id: `sync-evt-${Date.now()}-${syncRevision}`,
+          timestamp: lastSyncTimestamp,
+          source: "termux-cli",
+          action: "Sincronização manual acionada via CLI do Termux",
+          changedKeys: [],
+          revision: syncRevision,
+        });
+
+        return res.json({
+          output: `[TERMUX ⇄ WEB BIDIRECTIONAL SYNC]
+============================================================
+Status da Conexão:     ✔ HARMONIZADO & EM TEMPO REAL
+Revisão Global:        Rev #${syncRevision}
+Dispositivo Local:     ${currentSyncConfig.termuxDeviceId} (${currentSyncConfig.termuxLocalDir})
+Última Sincronização:  ${new Date(lastSyncTimestamp).toLocaleTimeString()} (Origem: TERMUX-CLI)
+Latência do Bus:       16ms
+------------------------------------------------------------
+Cluster Solana:        ${currentSyncConfig.solanaCluster}
+Arquivo em Foco:       ${currentSyncConfig.activeFilePath}
+Repositório GitHub:    ${currentSyncConfig.githubOwner}/${currentSyncConfig.githubRepo} (${currentSyncConfig.githubBranch})
+Linter Pré-Commit:     ${currentSyncConfig.dryRunCommand}
+Enforce Dry-Run:       ${currentSyncConfig.enforceDryRun ? "SIM (Bloqueio estrito no Web UI & CLI)" : "NÃO"}
+Auto-Remediação Rug:   ${currentSyncConfig.autoRemediate ? "SIM (Patch cirúrgico automático)" : "NÃO"}
+Nível de Telemetria:   ${currentSyncConfig.telemetryLogLevel.toUpperCase()}
+============================================================
+✔ O estado do Termux e a interface Web estão 100% consistentes.`,
+        });
+      }
+
+      // 2. solana-agent config get <key>
+      if (configAction === "get") {
+        const key = args[2];
+        if (!key) {
+          return res.json({
+            output: `[ERRO] Especifique a chave de configuração. Ex: solana-agent config get cluster`,
+          });
+        }
+        let val: any = undefined;
+        if (key === "cluster" || key === "solanaCluster") val = currentSyncConfig.solanaCluster;
+        else if (key === "file" || key === "activeFilePath") val = currentSyncConfig.activeFilePath;
+        else if (key === "dry-run" || key === "enforceDryRun") val = currentSyncConfig.enforceDryRun;
+        else if (key === "command" || key === "dryRunCommand") val = currentSyncConfig.dryRunCommand;
+        else if (key === "repo" || key === "githubRepo") val = currentSyncConfig.githubRepo;
+        else if (key === "branch" || key === "githubBranch") val = currentSyncConfig.githubBranch;
+        else if (key === "owner" || key === "githubOwner") val = currentSyncConfig.githubOwner;
+        else if (key === "auto-remediate" || key === "autoRemediate") val = currentSyncConfig.autoRemediate;
+        else if (key === "device" || key === "termuxDeviceId") val = currentSyncConfig.termuxDeviceId;
+        else if (key === "dir" || key === "termuxLocalDir") val = currentSyncConfig.termuxLocalDir;
+        else if ((currentSyncConfig as any)[key] !== undefined) val = (currentSyncConfig as any)[key];
+
+        if (val === undefined) {
+          return res.json({
+            output: `[ERRO] Chave '${key}' não reconhecida. Chaves disponíveis: cluster, file, dry-run, command, repo, branch, owner, auto-remediate, device, dir.`,
+          });
+        }
+        return res.json({
+          output: `[CONFIG] ${key} = ${val} (Revisão #${syncRevision})`,
+        });
+      }
+
+      // 3. solana-agent config set <key> <val>
+      if (configAction === "set") {
+        const key = args[2];
+        const val = args.slice(3).join(" ");
+        if (!key || val === undefined || val === "") {
+          return res.json({
+            output: `[ERRO] Uso: solana-agent config set <chave> <valor>
+Exemplos:
+  solana-agent config set cluster mainnet-beta
+  solana-agent config set cluster devnet
+  solana-agent config set dry-run true
+  solana-agent config set file programs/solana-vault/src/lib.rs
+  solana-agent config set repo solana-anchor-vault`,
+          });
+        }
+
+        const changed: string[] = [];
+        let appliedVal: any = val;
+
+        if (key === "cluster" || key === "solanaCluster") {
+          const allowed = ["devnet", "mainnet-beta", "testnet", "localnet"];
+          if (!allowed.includes(val.toLowerCase())) {
+            return res.json({
+              output: `[ERRO] Cluster '${val}' inválido. Valores permitidos: ${allowed.join(", ")}`,
+            });
+          }
+          currentSyncConfig.solanaCluster = val.toLowerCase() as any;
+          appliedVal = currentSyncConfig.solanaCluster;
+          changed.push("solanaCluster");
+        } else if (key === "file" || key === "activeFilePath") {
+          currentSyncConfig.activeFilePath = val;
+          appliedVal = val;
+          changed.push("activeFilePath");
+        } else if (key === "dry-run" || key === "enforceDryRun") {
+          const boolVal = val === "true" || val === "1" || val === "on" || val === "yes";
+          currentSyncConfig.enforceDryRun = boolVal;
+          appliedVal = boolVal;
+          changed.push("enforceDryRun");
+        } else if (key === "command" || key === "dryRunCommand") {
+          currentSyncConfig.dryRunCommand = val;
+          appliedVal = val;
+          changed.push("dryRunCommand");
+        } else if (key === "repo" || key === "githubRepo") {
+          currentSyncConfig.githubRepo = val;
+          appliedVal = val;
+          changed.push("githubRepo");
+        } else if (key === "branch" || key === "githubBranch") {
+          currentSyncConfig.githubBranch = val;
+          appliedVal = val;
+          changed.push("githubBranch");
+        } else if (key === "owner" || key === "githubOwner") {
+          currentSyncConfig.githubOwner = val;
+          appliedVal = val;
+          changed.push("githubOwner");
+        } else if (key === "auto-remediate" || key === "autoRemediate") {
+          const boolVal = val === "true" || val === "1" || val === "on" || val === "yes";
+          currentSyncConfig.autoRemediate = boolVal;
+          appliedVal = boolVal;
+          changed.push("autoRemediate");
+        } else if (key === "device" || key === "termuxDeviceId") {
+          currentSyncConfig.termuxDeviceId = val;
+          appliedVal = val;
+          changed.push("termuxDeviceId");
+        } else if (key === "dir" || key === "termuxLocalDir") {
+          currentSyncConfig.termuxLocalDir = val;
+          appliedVal = val;
+          changed.push("termuxLocalDir");
+        } else {
+          return res.json({
+            output: `[ERRO] Chave '${key}' desconhecida. Utilize: cluster, file, dry-run, command, repo, branch, owner, auto-remediate, device, dir.`,
+          });
+        }
+
+        syncRevision += 1;
+        lastSyncTimestamp = new Date().toISOString();
+        lastSyncSource = "termux-cli";
+        syncEvents.push({
+          id: `sync-evt-${Date.now()}-${syncRevision}`,
+          timestamp: lastSyncTimestamp,
+          source: "termux-cli",
+          action: `Termux CLI alterou [${key}] para '${appliedVal}'`,
+          changedKeys: changed,
+          revision: syncRevision,
+        });
+
+        return res.json({
+          output: `[SINCRONIZAÇÃO BIDIRECIONAL CONCLUÍDA]
+------------------------------------------------------------
+✔ Chave alterada:       ${key} = ${appliedVal}
+✔ Revisão do Sistema:   #${syncRevision}
+✔ Origem da Mudança:    TERMUX-CLI (Local)
+✔ Propagação Web UI:    SINCRONIZADO IMEDIATAMENTE VIA SERVER BUS
+------------------------------------------------------------
+A interface web (VS Code, BPMN e Telemetria) refletirá esta
+alteração em tempo real sem divergência de estado.`,
+        });
+      }
+
+      // 4. Default: List all configurations
+      return res.json({
+        output: `[TERMUX ⇄ WEB CONFIGURAÇÃO & ESTADO SINCRONIZADO]
+Revisão: #${syncRevision} | Estado: HARMONIZADO | Origem Recente: ${lastSyncSource.toUpperCase()}
+Timestamp: ${new Date(lastSyncTimestamp).toLocaleTimeString()}
+================================================================================
+CHAVE               VALOR LOCAL TERMUX                       REFLEXO NA WEB UI
+--------------------------------------------------------------------------------
+cluster             ${currentSyncConfig.solanaCluster.padEnd(40)} Sincronizado
+file                ${currentSyncConfig.activeFilePath.padEnd(40)} Sincronizado
+dry-run             ${(currentSyncConfig.enforceDryRun ? "true (Strict linter)" : "false (Permissivo)").padEnd(40)} Sincronizado
+command             ${currentSyncConfig.dryRunCommand.padEnd(40)} Sincronizado
+auto-remediate      ${(currentSyncConfig.autoRemediate ? "true (Auto-patch)" : "false").padEnd(40)} Sincronizado
+repo                ${(currentSyncConfig.githubOwner + "/" + currentSyncConfig.githubRepo).padEnd(40)} Sincronizado
+branch              ${currentSyncConfig.githubBranch.padEnd(40)} Sincronizado
+anchor              ${currentSyncConfig.anchorVersion.padEnd(40)} Sincronizado
+device              ${currentSyncConfig.termuxDeviceId.padEnd(40)} Sincronizado
+dir                 ${currentSyncConfig.termuxLocalDir.padEnd(40)} Sincronizado
+log-level           ${currentSyncConfig.telemetryLogLevel.padEnd(40)} Sincronizado
+================================================================================
+Comandos rápidos:
+  $ solana-agent config set cluster mainnet-beta
+  $ solana-agent config set dry-run true
+  $ solana-agent config set file programs/solana-vault/src/lib.rs
+  $ solana-agent sync`,
       });
     }
 
@@ -534,9 +884,10 @@ Status: SUCCESS | SLA: 142ms | Tokens: 420`,
     }
 
     if (sub === "audit") {
-      const target = args[1] || "programs/solana-vault/src/lib.rs";
+      const target = args[1] || currentSyncConfig.activeFilePath || "programs/solana-vault/src/lib.rs";
       return res.json({
         output: `[AUDITORIA RUST/SOLANA] Varredura em ${target}...
+Cluster Alvo: ${currentSyncConfig.solanaCluster.toUpperCase()} (Sincronizado)
 ---------------------------------------------------
 [CRITICAL] missing_account_validation: Linha 24
    AccountInfo 'authority' utilizada sem verificação .is_signer.
@@ -550,7 +901,7 @@ Sugestão: Execute 'solana-agent patch' para gerar o Rug Fix determinístico.`,
 
     if (sub === "dry-run" || sub === "cargo-check" || sub === "lint") {
       const agent = new DevSecOpsPolyglotAgent();
-      const targetPath = args[1] || "programs/solana-vault/src/lib.rs";
+      const targetPath = args[1] || currentSyncConfig.activeFilePath || "programs/solana-vault/src/lib.rs";
       const sampleCode = `pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     require!(ctx.accounts.authority.is_signer, ErrorCode::Unauthorized);
     require_keys_eq!(*ctx.accounts.token_program.key, anchor_spl::token::ID, ErrorCode::InvalidProgramId);
@@ -564,11 +915,14 @@ Sugestão: Execute 'solana-agent patch' para gerar o Rug Fix determinístico.`,
         encoding: "utf-8",
         stack: agent.detectStack(targetPath, sampleCode),
       };
-      const dry = await agent.executeDryRun(targetFile, sampleCode);
+      const dry = await agent.executeDryRun(targetFile, sampleCode, {
+        customCommand: currentSyncConfig.dryRunCommand,
+      });
       return res.json({
         output: `[DRY-RUN LINTER & COMPILER CHECK]
 Comando Executado: ${dry.commandExecuted}
 Alvo: ${targetPath} (Stack: ${targetFile.stack})
+Cluster Configurado: ${currentSyncConfig.solanaCluster}
 Status de Compilação: ${dry.passed ? "✔ PASSED (0 erros de compilação)" : "✖ FAILED"}
 Tempo de Execução: ${dry.executionTimeMs}ms
 ---------------------------------------------------
@@ -587,7 +941,8 @@ Avaliação Pré-Commit: ${dry.compilationSafe ? "SEGURO PARA COMMIT (Branch pro
 - mcp://graphrag-hybrid-retriever (Active)
 - mcp://rug-scaffolding-engine (Active)
 - mcp://graf-telemetry-collector (Active)
-- mcp://graphic-hack-designer (Active)`,
+- mcp://graphic-hack-designer (Active)
+- mcp://termux-sync-bus (Synchronized: Rev #${syncRevision})`,
       });
     }
 
@@ -596,14 +951,16 @@ Avaliação Pré-Commit: ${dry.compilationSafe ? "SEGURO PARA COMMIT (Branch pro
         output: `Uso: solana-agent <comando> [opções]
 
 Comandos disponíveis:
-  status         Exibe a saúde e telemetria do agente.
-  audit <path>   Executa auditoria de segurança Rust/Solana no arquivo.
-  patch          Gera e aplica patches Rug determinísticos.
-  dry-run [path] Executa validação de linter (cargo check / eslint) pré-commit.
-  bpmn           Executa o fluxo BPMN determinístico de verificação.
-  graph-rag      Exibe o grafo de dependências do projeto Anchor.
-  mcp            Lista os microsserviços do barramento MCP.
-  graf           Métricas e KPIs de observabilidade em tempo real.`,
+  status               Exibe a saúde, sincronia Termux ⇄ Web e telemetria.
+  config [list|get|set|sync] Gestão e sincronização bidirecional de configurações.
+  sync                 Sincroniza imediatamente o estado do Termux com a Web UI.
+  audit [path]         Executa auditoria de segurança Rust/Solana no arquivo ativo.
+  patch                Gera e aplica patches Rug determinísticos.
+  dry-run [path]       Executa validação de linter (cargo check / eslint) pré-commit.
+  bpmn                 Executa o fluxo BPMN determinístico de verificação.
+  graph-rag            Exibe o grafo de dependências do projeto Anchor.
+  mcp                  Lista os microsserviços do barramento MCP.
+  graf                 Métricas e KPIs de observabilidade em tempo real.`,
       });
     }
   }

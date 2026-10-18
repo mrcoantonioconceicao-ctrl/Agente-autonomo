@@ -22,9 +22,15 @@ Plataforma autônoma e orquestrada para **auditoria estática de contratos intel
 - **Extração de Contexto de Erro:** Mapeia arquivos Rust alterados nos PRs com falhas e envia para análise do pipeline de segurança.
 - **Indicador de Status em Tempo Real:** Exibe o status da conexão (`Conectado`, `Modo Simulação`, `Erro de Conexão`) em tempo real no menu lateral (`LeftSidebar`).
 
-### 3. 📱 Termux CLI (Android Mobile Terminal)
+### 3. 📱 Termux CLI & Sincronização Bidirecional (Android ⇄ Web Interface)
 - **Terminal Interativo Móvel:** Simulação e execução de linha de comando para auditoria de contratos Solana diretamente em dispositivos móveis Android.
-- **Comandos Nativos:** `audit <arquivo>`, `patch <issue>`, `status`, `prs`, `scan-github`, `help` e `clear`.
+- **Sincronização Bidirecional em Tempo Real:** Mecanismo distribuído de coerência de estado entre o cliente Termux e a interface Web. Alterações feitas no terminal móvel (cluster Solana, arquivo alvo, parâmetros de linter, auto-remediação) propagam-se instantaneamente para a interface Web (VS Code, BPMN e Telemetria) e vice-versa.
+- **Comandos de Configuração e Sincronia:**
+  - `solana-agent config`: Exibe a tabela unificada de configurações locais do Termux e seu reflexo no Web UI.
+  - `solana-agent config set <chave> <valor>`: Altera parâmetros do ambiente (`cluster`, `dry-run`, `file`, `repo`, `branch`, `auto-remediate`).
+  - `solana-agent sync`: Executa verificação e harmonização de estado com telemetria de latência do barramento MCP.
+  - `solana-agent audit [arquivo]`, `solana-agent dry-run`, `solana-agent patch`, `solana-agent status`, `solana-agent bpmn`, `solana-agent mcp`.
+- **Painel Visual de Sincronia:** Modal interativo (`TermuxSyncModal`) com logs de eventos cronológicos, inspeção de latência, comutação rápida de perfil e restauração de padrões EGC.
 
 ### 4. ⚙️ Orquestrador BPMN 2.0 & DDD
 - **Orquestração Determinística de Processos:** Fluxograma visual de pipelines de auditoria com garantia de SLA e rotas de Fallback.

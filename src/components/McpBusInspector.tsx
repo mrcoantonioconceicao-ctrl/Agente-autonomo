@@ -52,6 +52,14 @@ export const McpBusInspector: React.FC = () => {
       latencyAvgMs: 45,
       tools: ["generate_state_diagram", "render_security_infographic"],
     },
+    {
+      name: "mcp://termux-sync-bus",
+      protocol: "JSON-RPC / Bidirectional State Bus",
+      status: "online",
+      requestsProcessed: 5820,
+      latencyAvgMs: 12,
+      tools: ["sync_termux_config", "pull_web_state", "resolve_vector_clock", "broadcast_sync_event"],
+    },
   ];
 
   return (
